@@ -20,11 +20,16 @@
 git clone https://github.com/aa0101181514/ai-clock
 cd ai-clock
 python3 aiclock.py start demo "我的第一段工作"   # 開始計時
-python3 aiclock.py stop  demo "完成了"            # 結束，自動回填 token
+python3 aiclock.py stop  demo "完成了"            # 結束，自動回填 token + 產 Excel
 python3 aiclock.py show  demo                     # 看結果
 ```
 
 `aiclock.py` 零相依、純標準庫，clone 完直接能跑。只有要產 Excel（`build_log.py`）才需要 `pip install openpyxl`。
+
+> **想讓每個專案的計費 log 放在自己的資料夾？** 在專案根目錄跑一次
+> `python3 /path/to/aiclock.py init <project> --dir .`，之後該專案的 CSV 與
+> Excel 都會生在 `<專案根>/<project>_AI_CLOCK/`，且 `stop` 後**自動產出/更新
+> Excel**，不必再手動跑 `build_log.py`。詳見 [每個專案獨立資料夾](#每個專案獨立資料夾)。
 
 ---
 
@@ -70,9 +75,34 @@ python3 aiclock.py stop  myproject "完成 PR，改了 3 個檔"
 python3 aiclock.py status myproject
 python3 aiclock.py show   myproject
 
-# 產計費試算表
+# 產計費試算表（stop 已自動產，此指令用於手動重產）
 python3 build_log.py --project myproject
 ```
+
+### 每個專案獨立資料夾
+
+預設所有專案的 CSV 都放在 `~/.aiclock`（零設定即可用）。若你按專案對不同客戶計費，
+通常希望每個案子的計費 log 就放在**該案資料夾旁**，方便連同書狀一起交付／歸檔。
+跑一次 `init` 即可：
+
+```bash
+# 在專案根目錄（或用 --dir 指定）建立 <project>_AI_CLOCK/ 並記住它
+cd /path/to/我的客戶案
+python3 /path/to/aiclock.py init 我的客戶案 --dir .
+# → 建立 /path/to/我的客戶案/我的客戶案_AI_CLOCK/，含一個空的 Excel 骨架
+
+# 之後 start/stop 不必再帶 --dir，自動寫到該資料夾，且 stop 後自動產 Excel
+python3 /path/to/aiclock.py start 我的客戶案 "起草書狀"
+python3 /path/to/aiclock.py stop  我的客戶案 "交付 v1"
+# → CSV + Excel 都在 我的客戶案_AI_CLOCK/，已含這段
+```
+
+`init` 把 `<project> → 資料夾` 的對應記在 `~/.aiclock/.aiclock_projects.json`，
+所以同一台機器之後任何 `start`/`stop`/`build_log` 都會自動找到正確資料夾。
+單次想換位置可用環境變數 `AICLOCK_PROJECT_DIR=/some/root`（會在其下建
+`<project>_AI_CLOCK/`），優先序：`--dir` > `AICLOCK_PROJECT_DIR` > init 記住的 > `~/.aiclock`。
+
+> 想跳過 `stop` 的自動 Excel（例如 CI 環境沒裝 openpyxl）：`stop ... --no-excel`。
 
 ### Codex
 
@@ -96,10 +126,11 @@ python3 aiclock.py start myproject "工作" --wall 09:30
 
 在代理的指示檔（如 `CLAUDE.md`、`AGENTS.md`、system prompt 或 memory）放類似這段：
 
-> 做按時計費的專案時，每段工作開頭跑
-> `python3 /path/to/aiclock.py start <project> "<工作項目>"`，
-> 交付時跑 `... stop <project> "<產出說明>"`。如果你是 Codex 就加 `--agent codex`。
-> stop 後重跑 `build_log.py --project <project>` 更新試算表。
+> 做按時計費的專案時，先在專案資料夾跑一次
+> `python3 /path/to/aiclock.py init <project> --dir .`，
+> 之後每段工作開頭跑 `python3 /path/to/aiclock.py start <project> "<工作項目>"`，
+> 交付時跑 `... stop <project> "<產出說明>"`（stop 會自動更新 Excel）。
+> 如果你是 Codex 就加 `--agent codex`。
 
 代理仍然得記得去做——手動模式沒有魔法自動追蹤。
 
@@ -163,7 +194,8 @@ watcher 用準確度換取零負擔。把它當粗略的產能／成本儀表板
 
 | 變數 | 預設 | 意義 |
 |------|------|------|
-| `AICLOCK_HOME` | `~/.aiclock` | CSV + pending 檔存放位置 |
+| `AICLOCK_HOME` | `~/.aiclock` | 未 `init` 專案的 fallback 資料夾（也存 registry） |
+| `AICLOCK_PROJECT_DIR` | （無） | 本次呼叫的專案根；資料寫到 `<dir>/<project>_AI_CLOCK/` |
 | `AICLOCK_TZ_OFFSET` | 本機時區 | 時間戳的時區偏移（小時） |
 | `AICLOCK_CLAUDE_DIR` | 自動 `~/.claude/projects/*` | Claude transcript 根目錄 |
 | `AICLOCK_CODEX_DIR` | `~/.codex/sessions` | Codex sessions 根目錄 |
@@ -230,12 +262,18 @@ pollute each other's numbers.
 git clone https://github.com/aa0101181514/ai-clock
 cd ai-clock
 python3 aiclock.py start demo "my first work segment"   # begin timing
-python3 aiclock.py stop  demo "done"                    # end, auto-backfill tokens
+python3 aiclock.py stop  demo "done"                    # end, auto-backfill tokens + Excel
 python3 aiclock.py show  demo                           # see the result
 ```
 
 `aiclock.py` has zero dependencies (pure standard library) and runs straight
 after clone. Only `build_log.py` (the Excel sheet) needs `pip install openpyxl`.
+
+> **Want each project's billing log in its own folder?** Run once in the project
+> root: `python3 /path/to/aiclock.py init <project> --dir .`. After that the
+> project's CSV and Excel live in `<project-root>/<project>_AI_CLOCK/`, and
+> `stop` **auto-generates/updates the Excel** for you. See
+> [Per-project data dir](#per-project-data-dir).
 
 ---
 
@@ -287,9 +325,36 @@ python3 aiclock.py stop  myproject "drafted PR, 3 files changed"
 python3 aiclock.py status myproject
 python3 aiclock.py show   myproject
 
-# build the billing spreadsheet
+# build the billing spreadsheet (stop already does this; use to rebuild manually)
 python3 build_log.py --project myproject
 ```
+
+### Per-project data dir
+
+By default every project's CSV lives in `~/.aiclock` (zero config). If you bill
+different clients per project, you usually want each case's billing log to sit
+**next to that case's folder**, so it can be archived/delivered with the work.
+Run `init` once:
+
+```bash
+# create <project>_AI_CLOCK/ under the project root (or --dir PATH) and remember it
+cd /path/to/my-client-case
+python3 /path/to/aiclock.py init my-client-case --dir .
+# → creates /path/to/my-client-case/my-client-case_AI_CLOCK/ with an empty Excel skeleton
+
+# afterwards start/stop need no --dir; they write there, and stop auto-builds the Excel
+python3 /path/to/aiclock.py start my-client-case "draft the brief"
+python3 /path/to/aiclock.py stop  my-client-case "delivered v1"
+# → CSV + Excel both in my-client-case_AI_CLOCK/, including this segment
+```
+
+`init` records the `<project> → folder` mapping in
+`~/.aiclock/.aiclock_projects.json`, so any later `start`/`stop`/`build_log` on
+this machine finds the right folder automatically. For a one-off override use
+`AICLOCK_PROJECT_DIR=/some/root` (creates `<project>_AI_CLOCK/` under it).
+Priority: `--dir` > `AICLOCK_PROJECT_DIR` > the dir remembered by `init` > `~/.aiclock`.
+
+> To skip `stop`'s auto-Excel (e.g. CI without openpyxl): `stop ... --no-excel`.
 
 ### Codex
 
@@ -316,10 +381,10 @@ Put something like this in your agent's instructions (e.g. `CLAUDE.md`,
 `AGENTS.md`, a system prompt, or a memory):
 
 > When working on a billable project, run
-> `python3 /path/to/aiclock.py start <project> "<task>"` at the start of each
-> work segment and `... stop <project> "<deliverable>"` when you deliver. Use
-> `--agent codex` if you are Codex. Re-run `build_log.py --project <project>`
-> after stops to refresh the spreadsheet.
+> `python3 /path/to/aiclock.py init <project> --dir .` once in the project root,
+> then `python3 /path/to/aiclock.py start <project> "<task>"` at the start of
+> each work segment and `... stop <project> "<deliverable>"` when you deliver
+> (stop auto-refreshes the Excel). Use `--agent codex` if you are Codex.
 
 The agent still has to remember to do it — there is no magic auto-tracking.
 
@@ -392,7 +457,8 @@ using `aiclock.py start/stop`.
 
 | var | default | meaning |
 |-----|---------|---------|
-| `AICLOCK_HOME` | `~/.aiclock` | where CSVs + pending files live |
+| `AICLOCK_HOME` | `~/.aiclock` | fallback dir for non-`init`'d projects (also holds the registry) |
+| `AICLOCK_PROJECT_DIR` | (none) | project root for this call; data goes to `<dir>/<project>_AI_CLOCK/` |
 | `AICLOCK_TZ_OFFSET` | local tz | timezone offset (hours) for timestamps |
 | `AICLOCK_CLAUDE_DIR` | auto `~/.claude/projects/*` | Claude transcript root(s) |
 | `AICLOCK_CODEX_DIR` | `~/.codex/sessions` | Codex sessions root |

@@ -13,8 +13,9 @@ auditable. OS-clock timing + transcript-derived tokens give you objective,
 checkable numbers instead of the model's guesses.
 
 USAGE
+    aiclock.py init  <project> [--dir PATH]        # set up per-project data dir
     aiclock.py start <project> "<task>"            # begin a segment
-    aiclock.py stop  <project> "<deliverable>"     # end it, write a CSV row
+    aiclock.py stop  <project> "<deliverable>"     # end it, write a CSV row + Excel
     aiclock.py status <project>                    # is a segment open?
     aiclock.py show   <project>                    # print the project CSV
 
@@ -25,9 +26,25 @@ OPTIONS
     --wall HH:MM           wall-clock start (when the *user asked*), used as the
                            billable basis (includes the user's reading/thinking
                            time). Defaults to the moment of `start`.
+    --dir PATH             (init only) project root under which the
+                           <project>_AI_CLOCK/ data dir is created. Default: CWD.
+    --no-excel             (stop only) skip auto-generating the Excel.
+
+PER-PROJECT DATA DIR (recommended)
+    aiclock.py init <project> [--dir PATH]   # create <PATH>/<project>_AI_CLOCK/
+                                             # and remember it for this project,
+                                             # so later start/stop/build write
+                                             # there. PATH defaults to the current
+                                             # working directory.
+    Once a project is init'd, its CSV + Excel live next to the work they bill,
+    in <PATH>/<project>_AI_CLOCK/, and `stop` auto-generates the Excel there.
 
 CONFIG (environment variables — everything has a sane default)
-    AICLOCK_HOME        data dir for CSVs + pending files  (default: ~/.aiclock)
+    AICLOCK_HOME        fallback data dir when a project has not been init'd
+                        (default: ~/.aiclock)
+    AICLOCK_PROJECT_DIR project root for THIS invocation; data goes in
+                        <AICLOCK_PROJECT_DIR>/<project>_AI_CLOCK/ (overrides the
+                        remembered init dir; --dir overrides this)
     AICLOCK_TZ_OFFSET   timezone offset in hours for stamps (default: local)
     AICLOCK_CLAUDE_DIR  Claude Code transcript root  (default: auto-detect
                         ~/.claude/projects ; scans all project subdirs)
@@ -60,8 +77,47 @@ from pathlib import Path
 
 
 # ── configuration (env-overridable, all defaulted) ────────────────────────────
-def _data_home():
+def _fallback_home():
+    """Data dir for projects that were never `init`'d (zero-config default)."""
     return Path(os.environ.get("AICLOCK_HOME", str(Path.home() / ".aiclock")))
+
+
+# Registry mapping project -> its AI_CLOCK data dir, so start/stop/build don't
+# need --dir every time. Lives in the fallback home (small, machine-local).
+def _registry_path():
+    return _fallback_home() / ".aiclock_projects.json"
+
+
+def _load_registry():
+    p = _registry_path()
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return {}
+    return {}
+
+
+def _save_registry(reg):
+    p = _registry_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(reg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _data_home(project=None):
+    """Resolve the data dir for a project, in priority order:
+      1. AICLOCK_PROJECT_DIR env  -> <env>/<project>_AI_CLOCK/
+      2. registered init dir      -> the path saved by `init`
+      3. fallback home            -> ~/.aiclock (or AICLOCK_HOME)
+    """
+    if project:
+        env_dir = os.environ.get("AICLOCK_PROJECT_DIR")
+        if env_dir:
+            return Path(env_dir) / f"{project}_AI_CLOCK"
+        reg = _load_registry()
+        if project in reg:
+            return Path(reg[project])
+    return _fallback_home()
 
 
 def _tz():
@@ -101,14 +157,14 @@ def _codex_dir():
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 def csv_path(project, agent="claude"):
-    home = _data_home()
+    home = _data_home(project)
     if agent == "claude":
         return home / f"aiclock_{project}.csv"
     return home / f"aiclock_{project}_{agent}.csv"
 
 
 def pending_path(project, agent="claude"):
-    home = _data_home()
+    home = _data_home(project)
     if agent == "claude":
         return home / f".aiclock_open_{project}.json"
     return home / f".aiclock_open_{project}_{agent}.json"
@@ -243,8 +299,26 @@ def _parse_wall(hm):
     return w.isoformat(timespec="seconds"), w.timestamp()
 
 
+def cmd_init(project, base_dir=None):
+    """Create <base_dir>/<project>_AI_CLOCK/ and remember it for this project.
+    base_dir defaults to the current working directory."""
+    root = Path(base_dir).expanduser().resolve() if base_dir else Path.cwd()
+    data_dir = root / f"{project}_AI_CLOCK"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    reg = _load_registry()
+    reg[project] = str(data_dir)
+    _save_registry(reg)
+    print(f"📁 init [{project}] → {data_dir}")
+    # Generate an (empty-but-valid) Excel skeleton so the folder is ready.
+    try:
+        import build_log
+        build_log.build(project, "claude")
+    except Exception as e:  # build_log optional (needs openpyxl); never block init
+        print(f"   (Excel skeleton skipped: {e})", file=sys.stderr)
+
+
 def cmd_start(project, item, agent="claude", wall=None):
-    _data_home().mkdir(parents=True, exist_ok=True)
+    _data_home(project).mkdir(parents=True, exist_ok=True)
     p = pending_path(project, agent)
     if p.exists():
         prev = json.loads(p.read_text())
@@ -269,7 +343,7 @@ def cmd_start(project, item, agent="claude", wall=None):
     print(f"⏱️ START [{project}/{agent}] {t.strftime('%Y-%m-%d %H:%M:%S')} — {item}{extra}")
 
 
-def cmd_stop(project, note, agent="claude"):
+def cmd_stop(project, note, agent="claude", make_excel=True):
     p = pending_path(project, agent)
     if not p.exists():
         print(f"❌ no open segment to close ({project}/{agent}).", file=sys.stderr)
@@ -328,6 +402,19 @@ def cmd_stop(project, note, agent="claude"):
         msg += f"\n   {tok_note}"
     print(msg)
 
+    # Auto-generate the Excel next to the CSV (best-effort; needs openpyxl).
+    if make_excel:
+        try:
+            import build_log
+            out = build_log.build(project, agent)
+            if out:
+                print(f"   📊 Excel: {out}")
+        except ImportError:
+            print("   (Excel skipped: openpyxl not installed — `pip install openpyxl`)",
+                  file=sys.stderr)
+        except Exception as e:
+            print(f"   (Excel skipped: {e})", file=sys.stderr)
+
 
 def cmd_status(project, agent="claude"):
     p = pending_path(project, agent)
@@ -348,26 +435,38 @@ def cmd_show(project, agent="claude"):
     print(cp.read_text(encoding="utf-8"))
 
 
+def _take_opt(raw, name):
+    """Pop `--name VALUE` from raw, return VALUE or None."""
+    if name in raw:
+        i = raw.index(name)
+        val = raw[i + 1] if i + 1 < len(raw) else None
+        del raw[i:i + 2]
+        return val
+    return None
+
+
+def _take_flag(raw, name):
+    if name in raw:
+        raw.remove(name)
+        return True
+    return False
+
+
 def main():
     raw = sys.argv[1:]
-    agent = "claude"
-    wall = None
-    if "--agent" in raw:
-        i = raw.index("--agent")
-        agent = raw[i + 1]
-        del raw[i:i + 2]
-    if "--wall" in raw:
-        i = raw.index("--wall")
-        wall = raw[i + 1]
-        del raw[i:i + 2]
+    agent = _take_opt(raw, "--agent") or "claude"
+    wall = _take_opt(raw, "--wall")
+    base_dir = _take_opt(raw, "--dir")
+    no_excel = _take_flag(raw, "--no-excel")
     if len(raw) < 2:
         print(__doc__)
         sys.exit(1)
     cmd, project = raw[0], raw[1]
     arg = raw[2] if len(raw) > 2 else ""
     {
+        "init": lambda: cmd_init(project, base_dir),
         "start": lambda: cmd_start(project, arg, agent, wall),
-        "stop": lambda: cmd_stop(project, arg, agent),
+        "stop": lambda: cmd_stop(project, arg, agent, make_excel=not no_excel),
         "status": lambda: cmd_status(project, agent),
         "show": lambda: cmd_show(project, agent),
     }.get(cmd, lambda: (print(f"unknown command: {cmd}"), sys.exit(1)))()

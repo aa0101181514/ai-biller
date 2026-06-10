@@ -14,8 +14,13 @@ USAGE
     # claude and codex each produce their own .xlsx (agent in the filename)
 
 CONFIG
-    AICLOCK_HOME             data dir holding the CSVs   (default: ~/.aiclock)
+    AICLOCK_HOME             fallback data dir (default: ~/.aiclock)
+    AICLOCK_PROJECT_DIR      project root → <dir>/<project>_AI_CLOCK/ (see aiclock.py)
     AICLOCK_BILLING_INCREMENT  billing round-up unit in hours (default: 0.25)
+
+  Project data-dir resolution matches aiclock.py: a project init'd with
+  `aiclock.py init` writes its Excel into the same <project>_AI_CLOCK/ folder as
+  its CSV. Otherwise it falls back to ~/.aiclock.
 
 Requires: openpyxl  (pip install openpyxl)
 MIT License.
@@ -31,8 +36,19 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
-def data_home():
-    return Path(os.environ.get("AICLOCK_HOME", str(Path.home() / ".aiclock")))
+def data_home(project=None):
+    """Resolve the data dir for a project, sharing aiclock.py's logic so the
+    Excel lands next to the CSV. Falls back to a standalone resolver if aiclock
+    is not importable (keeps build_log usable on its own)."""
+    try:
+        import aiclock
+        return aiclock._data_home(project)
+    except Exception:
+        if project:
+            env_dir = os.environ.get("AICLOCK_PROJECT_DIR")
+            if env_dir:
+                return Path(env_dir) / f"{project}_AI_CLOCK"
+        return Path(os.environ.get("AICLOCK_HOME", str(Path.home() / ".aiclock")))
 
 
 def billing_increment():
@@ -43,7 +59,7 @@ def billing_increment():
 
 
 def csv_path(project, agent):
-    home = data_home()
+    home = data_home(project)
     if agent == "claude":
         return home / f"aiclock_{project}.csv"
     return home / f"aiclock_{project}_{agent}.csv"
@@ -51,7 +67,7 @@ def csv_path(project, agent):
 
 def out_path(project, agent):
     suffix = "" if agent == "claude" else f"_{agent}"
-    return data_home() / f"{project}_worklog{suffix}.xlsx"
+    return data_home(project) / f"{project}_worklog{suffix}.xlsx"
 
 
 def load_rows(project, agent):
@@ -83,12 +99,10 @@ def fint(v, d=0):
 def build(project, agent):
     inc = billing_increment()
     rows = load_rows(project, agent)
+    # init / first run: no CSV yet → still emit an empty-but-valid skeleton so the
+    # folder is ready and the user can see the format. Real rows fill in on stop.
     if rows is None:
-        print(f"(no data: {csv_path(project, agent)} does not exist)")
-        return
-    if not rows:
-        print(f"(CSV has no rows: {csv_path(project, agent)})")
-        return
+        rows = []
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -156,8 +170,12 @@ def build(project, agent):
         tot_cache += cache_tok
         tot_total += total_tok
 
+        # task/deliverable: accept both the current English headers and the
+        # earlier Chinese ones (工作項目/產出說明) so migrated CSVs still render.
+        task = row.get("task") or row.get("工作項目") or ""
+        deliverable = row.get("deliverable") or row.get("產出說明") or ""
         vals = [row.get("date", ""), start_hm, end_hm,
-                row.get("task", ""), row.get("deliverable", ""),
+                task, deliverable,
                 round(wall_min, 1), round(wall_h, 2),
                 round(ai_min, 1), round(ai_min / 60.0, 2),
                 in_tok, out_tok, cache_tok, total_tok, bill]
@@ -207,6 +225,7 @@ def build(project, agent):
     ws2.column_dimensions["B"].width = 84
 
     out = out_path(project, agent)
+    out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
     print(f"wrote: {out}")
     print(f"segments: {len(rows)} (agent={agent})")
@@ -214,6 +233,7 @@ def build(project, agent):
     print(f"AI time: {tot_ai:.1f} min = {tot_ai/60:.2f} h")
     print(f"tokens: in={tot_in} out={tot_out} total(excl. read)={tot_total}")
     print(f"billable hours: {tot_bill:.2f} h ({int(inc*60)}m round-up)")
+    return out
 
 
 def main():
