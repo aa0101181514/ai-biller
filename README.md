@@ -106,6 +106,69 @@ The agent still has to remember to do it — there is no magic auto-tracking.
 
 ---
 
+## Automatic mode: `aiclock_watch.py` (background daemon)
+
+If you'd rather **not** stamp anything by hand, run the watcher. It sits in the
+background, reads the Claude Code / Codex transcripts, groups consecutive
+token-usage events into "activity sessions" (a gap longer than the idle
+threshold starts a new session), and logs each session's time + tokens — fully
+automatic, no start/stop.
+
+```bash
+python3 aiclock_watch.py backfill          # build sessions from existing transcripts
+python3 aiclock_watch.py daemon            # run continuously (auto-detects activity)
+python3 aiclock_watch.py report            # per-agent per-day rollup (sessions/min/tokens)
+python3 aiclock_watch.py show --agent codex
+```
+
+Options: `--idle N` (idle-gap minutes that ends a session, default 5),
+`--interval N` (daemon poll seconds, default 30), `--agents claude,codex`.
+
+### Run it on login (macOS launchd)
+
+Create `~/Library/LaunchAgents/com.aiclock.watch.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.aiclock.watch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/ABSOLUTE/PATH/TO/ai-clock/aiclock_watch.py</string>
+    <string>daemon</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.aiclock.watch.plist   # start + auto-start on login
+launchctl unload ~/Library/LaunchAgents/com.aiclock.watch.plist # stop
+```
+
+(Linux: a `systemd --user` service or a cron `@reboot` line works the same way.)
+
+### ⚠️ Watcher is for internal reference, NOT billing
+
+The watcher trades accuracy for zero effort. Use it as a rough productivity /
+cost dashboard, **not** as a client invoice:
+
+- **Session boundaries are guessed** from the idle threshold, not work semantics.
+- **No task/deliverable description** — the watcher can't see what you were doing.
+- The time logged is "the transcript had activity", not "asked → delivered".
+- Token totals are much larger than a manual segment's, because the watcher
+  captures *all* activity in a window.
+
+It writes to **separate** files (`aiclock_watch_<agent>.csv`) so it never
+touches your manual `aiclock.py` data. For billable, described segments, keep
+using `aiclock.py start/stop`.
+
+---
+
 ## Configuration (all env vars, all defaulted)
 
 | var | default | meaning |
@@ -115,6 +178,8 @@ The agent still has to remember to do it — there is no magic auto-tracking.
 | `AICLOCK_CLAUDE_DIR` | auto `~/.claude/projects/*` | Claude transcript root(s) |
 | `AICLOCK_CODEX_DIR` | `~/.codex/sessions` | Codex sessions root |
 | `AICLOCK_BILLING_INCREMENT` | `0.25` | billing round-up unit (hours) |
+| `AICLOCK_WATCH_IDLE_MIN` | `5` | watcher: idle-gap minutes that ends a session |
+| `AICLOCK_WATCH_INTERVAL_SEC` | `30` | watcher daemon: poll interval seconds |
 
 ## CSV columns
 
@@ -136,7 +201,9 @@ See `examples/aiclock_demo.csv` for a sample (fake data).
   **timing still works**; tokens may read 0.
 - **Very short segments can read 0 tokens** — the last turn may not be flushed
   to the transcript when `stop` runs. Normal-length segments are unaffected.
-- **No automation.** Deliberately so: it's a thin, auditable tool, not a daemon.
+- **Two modes, two purposes.** `aiclock.py` (manual start/stop) gives precise,
+  described, billable segments. `aiclock_watch.py` (background daemon) gives
+  effortless but approximate internal reference. Don't bill from the watcher.
 
 ## License
 
