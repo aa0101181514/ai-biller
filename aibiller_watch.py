@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-aiclock_watch — passive background watcher for AI agent activity (Claude Code / Codex)
+aibiller_watch — passive background watcher for AI agent activity (Claude Code / Codex)
 
-UNLIKE aiclock.py (which an agent explicitly stamps start/stop on, giving you
+UNLIKE aibiller.py (which an agent explicitly stamps start/stop on, giving you
 semantically-clean, billable segments with task descriptions), this watcher runs
 in the background and AUTO-DETECTS activity by reading the agents' transcripts.
 It groups consecutive token-usage events into "activity sessions" (a gap longer
@@ -14,27 +14,27 @@ time/tokens did we burn" dashboard. It is NOT a billing record:
   - session boundaries are GUESSED from an idle threshold, not work semantics
   - there is no task/deliverable description (the watcher can't see intent)
   - the time is "transcript had activity" time, not "asked → delivered" time
-For billable, described segments keep using aiclock.py start/stop.
+For billable, described segments keep using aibiller.py start/stop.
 
-The watcher writes to SEPARATE files (aiclock_watch_<agent>.csv) so it never
-pollutes your manual aiclock data.
+The watcher writes to SEPARATE files (aibiller_watch_<agent>.csv) so it never
+pollutes your manual aibiller data.
 
 USAGE
-    aiclock_watch.py backfill                 # scan existing transcripts, rebuild sessions
-    aiclock_watch.py daemon                   # run continuously (poll every interval)
-    aiclock_watch.py show [--agent claude|codex]
-    aiclock_watch.py report                   # rollup: sessions / minutes / tokens per agent per day
+    aibiller_watch.py backfill                 # scan existing transcripts, rebuild sessions
+    aibiller_watch.py daemon                   # run continuously (poll every interval)
+    aibiller_watch.py show [--agent claude|codex]
+    aibiller_watch.py report                   # rollup: sessions / minutes / tokens per agent per day
 
 OPTIONS / CONFIG (env)
-    --idle N / AICLOCK_WATCH_IDLE_MIN   idle gap (minutes) that ends a session (default 5)
-    --interval N / AICLOCK_WATCH_INTERVAL_SEC   daemon poll interval seconds (default 30)
-    AICLOCK_HOME / AICLOCK_CLAUDE_DIR / AICLOCK_CODEX_DIR   (same as aiclock.py)
+    --idle N / AIBILLER_WATCH_IDLE_MIN   idle gap (minutes) that ends a session (default 5)
+    --interval N / AIBILLER_WATCH_INTERVAL_SEC   daemon poll interval seconds (default 30)
+    AIBILLER_HOME / AIBILLER_CLAUDE_DIR / AIBILLER_CODEX_DIR   (same as aibiller.py)
     --agents claude,codex               which agents to watch (default both)
 
-CSV COLUMNS (aiclock_watch_<agent>.csv)
+CSV COLUMNS (aibiller_watch_<agent>.csv)
     seq, date, session_start_iso, session_end_iso, active_min, event_count,
     in_tok, out_tok, cache_tok, cache_read_tok, total_tok, agent
-    (total_tok = in + out + cache_creation; cache_read excluded — same rule as aiclock.py)
+    (total_tok = in + out + cache_creation; cache_read excluded — same rule as aibiller.py)
 
 MIT License.
 """
@@ -46,27 +46,27 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-# reuse aiclock.py's path detection + tz so the two tools never drift apart
+# reuse aibiller.py's path detection + tz so the two tools never drift apart
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import aiclock as _ac  # noqa: E402
+import aibiller as _ac  # noqa: E402
 
 
 def _idle_min():
     try:
-        return float(os.environ.get("AICLOCK_WATCH_IDLE_MIN", "5"))
+        return float(os.environ.get("AIBILLER_WATCH_IDLE_MIN", "5"))
     except ValueError:
         return 5.0
 
 
 def _interval_sec():
     try:
-        return float(os.environ.get("AICLOCK_WATCH_INTERVAL_SEC", "30"))
+        return float(os.environ.get("AIBILLER_WATCH_INTERVAL_SEC", "30"))
     except ValueError:
         return 30.0
 
 
 def watch_csv(agent):
-    return _ac._data_home() / f"aiclock_watch_{agent}.csv"
+    return _ac._data_home() / f"aibiller_watch_{agent}.csv"
 
 
 HEADER = ["seq", "date", "session_start_iso", "session_end_iso", "active_min",
@@ -209,7 +209,7 @@ def cmd_backfill(agents, idle_min, quiet=False):
 
 
 def cmd_daemon(agents, idle_min, interval):
-    print(f"⏳ aiclock_watch daemon: agents={agents} idle={idle_min}m "
+    print(f"⏳ aibiller_watch daemon: agents={agents} idle={idle_min}m "
           f"interval={interval}s home={_ac._data_home()}")
     print("   (passive; reads transcripts only. Ctrl-C to stop.)")
     try:

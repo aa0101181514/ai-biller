@@ -1,8 +1,8 @@
-# aiclock generated data — never commit real work logs (may contain client/work details)
+# aibiller generated data — never commit real work logs (may contain client/work details)
 *.csv
 *.xlsx
-.aiclock_open_*.json
-.aiclock/
+.aibiller_open_*.json
+.aibiller/
 *.bak*
 
 # but DO ship the fake-data examples

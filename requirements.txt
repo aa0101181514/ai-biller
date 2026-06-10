@@ -1,3 +1,3 @@
-# aiclock.py and aiclock_watch.py need NO dependencies (pure standard library).
+# aibiller.py and aibiller_watch.py need NO dependencies (pure standard library).
 # openpyxl is only required by build_log.py to produce the .xlsx billing sheet.
 openpyxl>=3.0

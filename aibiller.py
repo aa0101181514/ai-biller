@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI CLOCK (aiclock) — objective work-time clock for AI coding agents (Claude Code / Codex)
+AI BILLER (aibiller) — objective work-time clock for AI coding agents (Claude Code / Codex)
 
 The agent stamps `start` at the beginning of a work segment and `stop` at the
 end. Duration is measured by the OS clock (not estimated by the model), and the
@@ -13,11 +13,11 @@ auditable. OS-clock timing + transcript-derived tokens give you objective,
 checkable numbers instead of the model's guesses.
 
 USAGE
-    aiclock.py init  <project> [--dir PATH]        # set up per-project data dir
-    aiclock.py start <project> "<task>"            # begin a segment
-    aiclock.py stop  <project> "<deliverable>"     # end it, write a CSV row + Excel
-    aiclock.py status <project>                    # is a segment open?
-    aiclock.py show   <project>                    # print the project CSV
+    aibiller.py init  <project> [--dir PATH]        # set up per-project data dir
+    aibiller.py start <project> "<task>"            # begin a segment
+    aibiller.py stop  <project> "<deliverable>"     # end it, write a CSV row + Excel
+    aibiller.py status <project>                    # is a segment open?
+    aibiller.py show   <project>                    # print the project CSV
 
 OPTIONS
     --agent claude|codex   which agent's transcript to read for tokens
@@ -27,28 +27,28 @@ OPTIONS
                            billable basis (includes the user's reading/thinking
                            time). Defaults to the moment of `start`.
     --dir PATH             (init only) project root under which the
-                           <project>_AI_CLOCK/ data dir is created. Default: CWD.
+                           <project>_AI_BILLER/ data dir is created. Default: CWD.
     --no-excel             (stop only) skip auto-generating the Excel.
 
 PER-PROJECT DATA DIR (recommended)
-    aiclock.py init <project> [--dir PATH]   # create <PATH>/<project>_AI_CLOCK/
+    aibiller.py init <project> [--dir PATH]   # create <PATH>/<project>_AI_BILLER/
                                              # and remember it for this project,
                                              # so later start/stop/build write
                                              # there. PATH defaults to the current
                                              # working directory.
     Once a project is init'd, its CSV + Excel live next to the work they bill,
-    in <PATH>/<project>_AI_CLOCK/, and `stop` auto-generates the Excel there.
+    in <PATH>/<project>_AI_BILLER/, and `stop` auto-generates the Excel there.
 
 CONFIG (environment variables — everything has a sane default)
-    AICLOCK_HOME        fallback data dir when a project has not been init'd
-                        (default: ~/.aiclock)
-    AICLOCK_PROJECT_DIR project root for THIS invocation; data goes in
-                        <AICLOCK_PROJECT_DIR>/<project>_AI_CLOCK/ (overrides the
+    AIBILLER_HOME        fallback data dir when a project has not been init'd
+                        (default: ~/.aibiller)
+    AIBILLER_PROJECT_DIR project root for THIS invocation; data goes in
+                        <AIBILLER_PROJECT_DIR>/<project>_AI_BILLER/ (overrides the
                         remembered init dir; --dir overrides this)
-    AICLOCK_TZ_OFFSET   timezone offset in hours for stamps (default: local)
-    AICLOCK_CLAUDE_DIR  Claude Code transcript root  (default: auto-detect
+    AIBILLER_TZ_OFFSET   timezone offset in hours for stamps (default: local)
+    AIBILLER_CLAUDE_DIR  Claude Code transcript root  (default: auto-detect
                         ~/.claude/projects ; scans all project subdirs)
-    AICLOCK_CODEX_DIR   Codex sessions root          (default: ~/.codex/sessions)
+    AIBILLER_CODEX_DIR   Codex sessions root          (default: ~/.codex/sessions)
 
 CSV COLUMNS
     seq, date, wall_start_iso, wall_end_iso, wall_min,
@@ -79,13 +79,13 @@ from pathlib import Path
 # ── configuration (env-overridable, all defaulted) ────────────────────────────
 def _fallback_home():
     """Data dir for projects that were never `init`'d (zero-config default)."""
-    return Path(os.environ.get("AICLOCK_HOME", str(Path.home() / ".aiclock")))
+    return Path(os.environ.get("AIBILLER_HOME", str(Path.home() / ".aibiller")))
 
 
-# Registry mapping project -> its AI_CLOCK data dir, so start/stop/build don't
+# Registry mapping project -> its AI_BILLER data dir, so start/stop/build don't
 # need --dir every time. Lives in the fallback home (small, machine-local).
 def _registry_path():
-    return _fallback_home() / ".aiclock_projects.json"
+    return _fallback_home() / ".aibiller_projects.json"
 
 
 def _load_registry():
@@ -106,14 +106,14 @@ def _save_registry(reg):
 
 def _data_home(project=None):
     """Resolve the data dir for a project, in priority order:
-      1. AICLOCK_PROJECT_DIR env  -> <env>/<project>_AI_CLOCK/
+      1. AIBILLER_PROJECT_DIR env  -> <env>/<project>_AI_BILLER/
       2. registered init dir      -> the path saved by `init`
-      3. fallback home            -> ~/.aiclock (or AICLOCK_HOME)
+      3. fallback home            -> ~/.aibiller (or AIBILLER_HOME)
     """
     if project:
-        env_dir = os.environ.get("AICLOCK_PROJECT_DIR")
+        env_dir = os.environ.get("AIBILLER_PROJECT_DIR")
         if env_dir:
-            return Path(env_dir) / f"{project}_AI_CLOCK"
+            return Path(env_dir) / f"{project}_AI_BILLER"
         reg = _load_registry()
         if project in reg:
             return Path(reg[project])
@@ -121,7 +121,7 @@ def _data_home(project=None):
 
 
 def _tz():
-    off = os.environ.get("AICLOCK_TZ_OFFSET")
+    off = os.environ.get("AIBILLER_TZ_OFFSET")
     if off is not None:
         try:
             return timezone(timedelta(hours=float(off)))
@@ -139,7 +139,7 @@ def _claude_dirs():
     """Claude Code transcript roots. Env overrides; else auto-detect every
     project subdir under ~/.claude/projects (usage is keyed by UTC timestamp,
     so scanning all projects and filtering by the time window is correct)."""
-    env = os.environ.get("AICLOCK_CLAUDE_DIR")
+    env = os.environ.get("AIBILLER_CLAUDE_DIR")
     if env:
         return [Path(p) for p in env.split(os.pathsep) if p]
     root = Path.home() / ".claude" / "projects"
@@ -149,7 +149,7 @@ def _claude_dirs():
 
 
 def _codex_dir():
-    env = os.environ.get("AICLOCK_CODEX_DIR")
+    env = os.environ.get("AIBILLER_CODEX_DIR")
     if env:
         return Path(env)
     return Path.home() / ".codex" / "sessions"
@@ -159,15 +159,15 @@ def _codex_dir():
 def csv_path(project, agent="claude"):
     home = _data_home(project)
     if agent == "claude":
-        return home / f"aiclock_{project}.csv"
-    return home / f"aiclock_{project}_{agent}.csv"
+        return home / f"aibiller_{project}.csv"
+    return home / f"aibiller_{project}_{agent}.csv"
 
 
 def pending_path(project, agent="claude"):
     home = _data_home(project)
     if agent == "claude":
-        return home / f".aiclock_open_{project}.json"
-    return home / f".aiclock_open_{project}_{agent}.json"
+        return home / f".aibiller_open_{project}.json"
+    return home / f".aibiller_open_{project}_{agent}.json"
 
 
 # ── token collection ──────────────────────────────────────────────────────────
@@ -300,10 +300,10 @@ def _parse_wall(hm):
 
 
 def cmd_init(project, base_dir=None):
-    """Create <base_dir>/<project>_AI_CLOCK/ and remember it for this project.
+    """Create <base_dir>/<project>_AI_BILLER/ and remember it for this project.
     base_dir defaults to the current working directory."""
     root = Path(base_dir).expanduser().resolve() if base_dir else Path.cwd()
-    data_dir = root / f"{project}_AI_CLOCK"
+    data_dir = root / f"{project}_AI_BILLER"
     data_dir.mkdir(parents=True, exist_ok=True)
     reg = _load_registry()
     reg[project] = str(data_dir)

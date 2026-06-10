@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-build_log.py — turn an aiclock CSV into a billing spreadsheet (.xlsx)
+build_log.py — turn an aibiller CSV into a billing spreadsheet (.xlsx)
 
-Reads aiclock_<project>[_<agent>].csv (written by aiclock.py) and emits an
+Reads aibiller_<project>[_<agent>].csv (written by aibiller.py) and emits an
 Excel workbook with two time columns kept separate:
   - billable time  = wall_min (user-asked → delivered; includes reading/comms)
   - AI time        = duration_min (OS-clock pure run time)
@@ -14,13 +14,13 @@ USAGE
     # claude and codex each produce their own .xlsx (agent in the filename)
 
 CONFIG
-    AICLOCK_HOME             fallback data dir (default: ~/.aiclock)
-    AICLOCK_PROJECT_DIR      project root → <dir>/<project>_AI_CLOCK/ (see aiclock.py)
-    AICLOCK_BILLING_INCREMENT  billing round-up unit in hours (default: 0.25)
+    AIBILLER_HOME             fallback data dir (default: ~/.aibiller)
+    AIBILLER_PROJECT_DIR      project root → <dir>/<project>_AI_BILLER/ (see aibiller.py)
+    AIBILLER_BILLING_INCREMENT  billing round-up unit in hours (default: 0.25)
 
-  Project data-dir resolution matches aiclock.py: a project init'd with
-  `aiclock.py init` writes its Excel into the same <project>_AI_CLOCK/ folder as
-  its CSV. Otherwise it falls back to ~/.aiclock.
+  Project data-dir resolution matches aibiller.py: a project init'd with
+  `aibiller.py init` writes its Excel into the same <project>_AI_BILLER/ folder as
+  its CSV. Otherwise it falls back to ~/.aibiller.
 
 Requires: openpyxl  (pip install openpyxl)
 MIT License.
@@ -37,23 +37,23 @@ from openpyxl.utils import get_column_letter
 
 
 def data_home(project=None):
-    """Resolve the data dir for a project, sharing aiclock.py's logic so the
-    Excel lands next to the CSV. Falls back to a standalone resolver if aiclock
+    """Resolve the data dir for a project, sharing aibiller.py's logic so the
+    Excel lands next to the CSV. Falls back to a standalone resolver if aibiller
     is not importable (keeps build_log usable on its own)."""
     try:
-        import aiclock
-        return aiclock._data_home(project)
+        import aibiller
+        return aibiller._data_home(project)
     except Exception:
         if project:
-            env_dir = os.environ.get("AICLOCK_PROJECT_DIR")
+            env_dir = os.environ.get("AIBILLER_PROJECT_DIR")
             if env_dir:
-                return Path(env_dir) / f"{project}_AI_CLOCK"
-        return Path(os.environ.get("AICLOCK_HOME", str(Path.home() / ".aiclock")))
+                return Path(env_dir) / f"{project}_AI_BILLER"
+        return Path(os.environ.get("AIBILLER_HOME", str(Path.home() / ".aibiller")))
 
 
 def billing_increment():
     try:
-        return float(os.environ.get("AICLOCK_BILLING_INCREMENT", "0.25"))
+        return float(os.environ.get("AIBILLER_BILLING_INCREMENT", "0.25"))
     except ValueError:
         return 0.25
 
@@ -61,8 +61,8 @@ def billing_increment():
 def csv_path(project, agent):
     home = data_home(project)
     if agent == "claude":
-        return home / f"aiclock_{project}.csv"
-    return home / f"aiclock_{project}_{agent}.csv"
+        return home / f"aibiller_{project}.csv"
+    return home / f"aibiller_{project}_{agent}.csv"
 
 
 def out_path(project, agent):
@@ -206,13 +206,13 @@ def build(project, agent):
 
     ws2 = wb.create_sheet("billing notes")
     notes = [
-        ("source", f"aiclock CSV: {csv_path(project, agent).name} (written by aiclock.py)"),
+        ("source", f"aibiller CSV: {csv_path(project, agent).name} (written by aibiller.py)"),
         ("billable time", "wall-clock from user-asked to delivered; includes the user's reading/thinking/comms"),
-        ("AI time", "pure run time measured by aiclock via the OS clock"),
+        ("AI time", "pure run time measured by aibiller via the OS clock"),
         ("billable hours", f"billable time rounded UP per {int(inc*60)}-minute unit"),
         ("tokens", "backfilled at stop from the agent transcript; total = in + out + cache_creation (cache_read excluded — background context, unrelated to work done)"),
         ("agent", f"this sheet: {agent}; claude and codex keep separate CSVs/sheets, tokens matched per-transcript by time window"),
-        ("update", f"new segments enter the CSV via aiclock; re-run build_log.py --project {project}" + (f" --agent {agent}" if agent != "claude" else "")),
+        ("update", f"new segments enter the CSV via aibiller; re-run build_log.py --project {project}" + (f" --agent {agent}" if agent != "claude" else "")),
         ("total cost", "billable hours TOTAL × your agreed hourly rate"),
     ]
     for i, (k, v) in enumerate(notes, 1):
