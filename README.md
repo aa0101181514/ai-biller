@@ -104,6 +104,12 @@ python3 /path/to/aibiller.py stop  我的客戶案 "交付 v1"
 
 > 想跳過 `stop` 的自動 Excel（例如 CI 環境沒裝 openpyxl）：`stop ... --no-excel`。
 
+> **Excel 語言（繁中／英文）**：預設英文。要繁體中文，`init` 時加 `--lang zh`
+> （語言會記進 registry，之後 `stop` 自動產的 Excel 也跟著用繁中，不必再設環境
+> 變數）：`python3 aibiller.py init 我的客戶案 --dir . --lang zh`。單次覆寫可用環境
+> 變數 `AIBILLER_LANG=zh` 或 `build_log.py --lang zh`。優先序：`AIBILLER_LANG` 環境
+> 變數 > registry 記的語言 > 英文預設。
+
 ### Codex
 
 ```bash
@@ -200,6 +206,7 @@ watcher 用準確度換取零負擔。把它當粗略的產能／成本儀表板
 | `AIBILLER_CLAUDE_DIR` | 自動 `~/.claude/projects/*` | Claude transcript 根目錄 |
 | `AIBILLER_CODEX_DIR` | `~/.codex/sessions` | Codex sessions 根目錄 |
 | `AIBILLER_BILLING_INCREMENT` | `0.25` | 計費進位單位（小時） |
+| `AIBILLER_LANG` | `en` | Excel 語言：`en`／`zh`（繁中）。`init --lang zh` 可記進 registry 當該專案預設 |
 | `AIBILLER_WATCH_IDLE_MIN` | `5` | watcher：閒置幾分鐘算切段 |
 | `AIBILLER_WATCH_INTERVAL_SEC` | `30` | watcher daemon：輪詢秒數 |
 
@@ -356,6 +363,13 @@ Priority: `--dir` > `AIBILLER_PROJECT_DIR` > the dir remembered by `init` > `~/.
 
 > To skip `stop`'s auto-Excel (e.g. CI without openpyxl): `stop ... --no-excel`.
 
+> **Excel language (English / Traditional Chinese)**: English by default. For a
+> zh-Hant sheet, pass `--lang zh` to `init` (the language is stored in the
+> registry, so `stop`'s auto-Excel uses it too — no env var needed):
+> `python3 aibiller.py init my-client-case --dir . --lang zh`. One-off override:
+> `AIBILLER_LANG=zh` or `build_log.py --lang zh`. Priority: `AIBILLER_LANG` env >
+> the project's registered lang > English default.
+
 ### Codex
 
 ```bash
@@ -463,6 +477,7 @@ using `aibiller.py start/stop`.
 | `AIBILLER_CLAUDE_DIR` | auto `~/.claude/projects/*` | Claude transcript root(s) |
 | `AIBILLER_CODEX_DIR` | `~/.codex/sessions` | Codex sessions root |
 | `AIBILLER_BILLING_INCREMENT` | `0.25` | billing round-up unit (hours) |
+| `AIBILLER_LANG` | `en` | Excel language: `en` / `zh` (Traditional Chinese). `init --lang zh` stores it per-project in the registry |
 | `AIBILLER_WATCH_IDLE_MIN` | `5` | watcher: idle-gap minutes that ends a session |
 | `AIBILLER_WATCH_INTERVAL_SEC` | `30` | watcher daemon: poll interval seconds |
 

@@ -13,7 +13,7 @@ auditable. OS-clock timing + transcript-derived tokens give you objective,
 checkable numbers instead of the model's guesses.
 
 USAGE
-    aibiller.py init  <project> [--dir PATH]        # set up per-project data dir
+    aibiller.py init  <project> [--dir PATH] [--lang en|zh]  # per-project data dir
     aibiller.py start <project> "<task>"            # begin a segment
     aibiller.py stop  <project> "<deliverable>"     # end it, write a CSV row + Excel
     aibiller.py status <project>                    # is a segment open?
@@ -28,6 +28,8 @@ OPTIONS
                            time). Defaults to the moment of `start`.
     --dir PATH             (init only) project root under which the
                            <project>_AI_BILLER/ data dir is created. Default: CWD.
+    --lang en|zh           (init only) Excel output language remembered for this
+                           project (zh = Traditional Chinese). Default: en.
     --no-excel             (stop only) skip auto-generating the Excel.
 
 PER-PROJECT DATA DIR (recommended)
@@ -104,6 +106,17 @@ def _save_registry(reg):
     p.write_text(json.dumps(reg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _reg_entry(project):
+    """A project's registry entry as a dict {dir, lang}. Back-compat: an older
+    registry stored just the dir string; normalize it to a dict."""
+    e = _load_registry().get(project)
+    if e is None:
+        return None
+    if isinstance(e, str):
+        return {"dir": e}
+    return e
+
+
 def _data_home(project=None):
     """Resolve the data dir for a project, in priority order:
       1. AIBILLER_PROJECT_DIR env  -> <env>/<project>_AI_BILLER/
@@ -114,10 +127,22 @@ def _data_home(project=None):
         env_dir = os.environ.get("AIBILLER_PROJECT_DIR")
         if env_dir:
             return Path(env_dir) / f"{project}_AI_BILLER"
-        reg = _load_registry()
-        if project in reg:
-            return Path(reg[project])
+        e = _reg_entry(project)
+        if e and e.get("dir"):
+            return Path(e["dir"])
     return _fallback_home()
+
+
+def _project_lang(project=None):
+    """Excel language for a project, priority: AIBILLER_LANG env > registry
+    lang (set by `init --lang`) > 'en' default. 'zh*' → 'zh'."""
+    v = os.environ.get("AIBILLER_LANG")
+    if not v and project:
+        e = _reg_entry(project)
+        if e:
+            v = e.get("lang")
+    v = (v or "en").lower()
+    return "zh" if v.startswith("zh") else "en"
 
 
 def _tz():
@@ -299,19 +324,30 @@ def _parse_wall(hm):
     return w.isoformat(timespec="seconds"), w.timestamp()
 
 
-def cmd_init(project, base_dir=None):
-    """Create <base_dir>/<project>_AI_BILLER/ and remember it for this project.
-    base_dir defaults to the current working directory."""
+def cmd_init(project, base_dir=None, lang=None):
+    """Create <base_dir>/<project>_AI_BILLER/ and remember it (with its Excel
+    language) for this project. base_dir defaults to the current working dir."""
     root = Path(base_dir).expanduser().resolve() if base_dir else Path.cwd()
     data_dir = root / f"{project}_AI_BILLER"
     data_dir.mkdir(parents=True, exist_ok=True)
     reg = _load_registry()
-    reg[project] = str(data_dir)
+    entry = {"dir": str(data_dir)}
+    if lang:
+        entry["lang"] = "zh" if lang.lower().startswith("zh") else "en"
+    else:
+        # preserve a previously-set lang if re-init'ing
+        prev = _reg_entry(project)
+        if prev and prev.get("lang"):
+            entry["lang"] = prev["lang"]
+    reg[project] = entry
     _save_registry(reg)
-    print(f"📁 init [{project}] → {data_dir}")
+    lang_tag = f" (Excel lang={entry['lang']})" if entry.get("lang") else ""
+    print(f"📁 init [{project}] → {data_dir}{lang_tag}")
     # Generate an (empty-but-valid) Excel skeleton so the folder is ready.
     try:
         import build_log
+        if entry.get("lang") and not os.environ.get("AIBILLER_LANG"):
+            os.environ["AIBILLER_LANG"] = entry["lang"]
         build_log.build(project, "claude")
     except Exception as e:  # build_log optional (needs openpyxl); never block init
         print(f"   (Excel skeleton skipped: {e})", file=sys.stderr)
@@ -406,6 +442,9 @@ def cmd_stop(project, note, agent="claude", make_excel=True):
     if make_excel:
         try:
             import build_log
+            # honor the project's registered Excel language (env still wins)
+            if not os.environ.get("AIBILLER_LANG"):
+                os.environ["AIBILLER_LANG"] = _project_lang(project)
             out = build_log.build(project, agent)
             if out:
                 print(f"   📊 Excel: {out}")
@@ -457,6 +496,7 @@ def main():
     agent = _take_opt(raw, "--agent") or "claude"
     wall = _take_opt(raw, "--wall")
     base_dir = _take_opt(raw, "--dir")
+    lang = _take_opt(raw, "--lang")
     no_excel = _take_flag(raw, "--no-excel")
     if len(raw) < 2:
         print(__doc__)
@@ -464,7 +504,7 @@ def main():
     cmd, project = raw[0], raw[1]
     arg = raw[2] if len(raw) > 2 else ""
     {
-        "init": lambda: cmd_init(project, base_dir),
+        "init": lambda: cmd_init(project, base_dir, lang),
         "start": lambda: cmd_start(project, arg, agent, wall),
         "stop": lambda: cmd_stop(project, arg, agent, make_excel=not no_excel),
         "status": lambda: cmd_status(project, agent),

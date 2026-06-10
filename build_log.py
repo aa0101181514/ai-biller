@@ -17,6 +17,8 @@ CONFIG
     AIBILLER_HOME             fallback data dir (default: ~/.aibiller)
     AIBILLER_PROJECT_DIR      project root → <dir>/<project>_AI_BILLER/ (see aibiller.py)
     AIBILLER_BILLING_INCREMENT  billing round-up unit in hours (default: 0.25)
+    AIBILLER_LANG             Excel language: en (default) | zh (Traditional Chinese)
+                              (or pass --lang zh)
 
   Project data-dir resolution matches aibiller.py: a project init'd with
   `aibiller.py init` writes its Excel into the same <project>_AI_BILLER/ folder as
@@ -56,6 +58,72 @@ def billing_increment():
         return float(os.environ.get("AIBILLER_BILLING_INCREMENT", "0.25"))
     except ValueError:
         return 0.25
+
+
+def lang(project=None):
+    """Excel output language: 'en' (default) or 'zh' (Traditional Chinese).
+    Priority: AIBILLER_LANG env > the project's registered lang (set by
+    `aibiller.py init --lang`) > 'en'. 'zh'/'zh-tw'/'zh-hant' all map to zh."""
+    try:
+        import aibiller
+        return aibiller._project_lang(project)
+    except Exception:
+        v = (os.environ.get("AIBILLER_LANG") or "en").lower()
+        return "zh" if v.startswith("zh") else "en"
+
+
+# i18n strings, keyed by language. headers() takes the increment for the dynamic
+# round-up labels.
+def _strings(inc):
+    m = int(inc * 60)
+    return {
+        "en": {
+            "sheet": "worklog",
+            "headers": ["date", "start", "end", "task", "deliverable",
+                        "billable time\n(min, incl. reading)", "billable (h)",
+                        "AI time\n(min)", "AI (h)",
+                        "in_tok", "out_tok", "cache_tok",
+                        "total_tok\n(excl. cache_read)",
+                        f"billable hours\n(wall, round up {m}m)"],
+            "title": "{project} — AI worklog{agent_tag} "
+                     f"(billable time / AI time kept separate, {m}m round-up)",
+            "total": "TOTAL",
+            "notes_sheet": "billing notes",
+            "notes": [
+                ("source", "aibiller CSV: {csv} (written by aibiller.py)"),
+                ("billable time", "wall-clock from user-asked to delivered; includes the user's reading/thinking/comms"),
+                ("AI time", "pure run time measured by aibiller via the OS clock"),
+                ("billable hours", f"billable time rounded UP per {m}-minute unit"),
+                ("tokens", "backfilled at stop from the agent transcript; total = in + out + cache_creation (cache_read excluded — background context, unrelated to work done)"),
+                ("agent", "this sheet: {agent}; claude and codex keep separate CSVs/sheets, tokens matched per-transcript by time window"),
+                ("update", "new segments enter the CSV via aibiller; re-run build_log.py --project {project}{agent_opt}"),
+                ("total cost", "billable hours TOTAL × your agreed hourly rate"),
+            ],
+        },
+        "zh": {
+            "sheet": "工作計時log",
+            "headers": ["日期", "開始", "結束", "工作項目", "產出／說明",
+                        "法顧投入總時間\n(分，含閱讀溝通)", "法顧投入(時)",
+                        "AI處理時間\n(分)", "AI處理(時)",
+                        "in_tok", "out_tok", "cache_tok",
+                        "total_tok\n(不含cache_read)",
+                        f"可計費工時\n(以法顧投入×{m}分進位)"],
+            "title": "{project} — AI 工作計時 log{agent_tag}"
+                     f"（法顧投入總時間／AI處理時間 兩欄分開，{m}分進位）",
+            "total": "合計",
+            "notes_sheet": "計費口徑說明",
+            "notes": [
+                ("事實來源", "aibiller CSV：{csv}（由 aibiller.py start/stop 寫入）"),
+                ("法顧投入總時間", "用戶發問→交付的牆鐘區間，含閱讀／思考／溝通＝對外計費基礎"),
+                ("AI 處理時間", "aibiller 用 OS 時鐘量的純跑時間，去除閱讀"),
+                ("可計費進位", f"以法顧投入總時間，每 {m} 分鐘無條件進位"),
+                ("token", "stop 時掃對應 agent transcript 回填；total = in+out+cache_creation（不含 cache_read，後者為百萬級背景上下文與工作量無關）"),
+                ("agent", "本表 agent = {agent}；claude 與 codex 各自獨立 CSV/Excel，token 按時間區間配對各自 transcript 不混"),
+                ("更新方式", "新工作段以 aibiller 打點即自動進 CSV；重跑 build_log.py --project {project}{agent_opt} 更新本 Excel"),
+                ("最終費用", "可計費工時合計 × 約定時薪"),
+            ],
+        },
+    }
 
 
 def csv_path(project, agent):
@@ -104,34 +172,34 @@ def build(project, agent):
     if rows is None:
         rows = []
 
+    lg = lang(project)
+    L = _strings(inc)[lg]
+    # Use a CJK-capable font for the zh sheet so WPS/Excel render cleanly.
+    base_font_name = "Microsoft JhengHei" if lg == "zh" else None
+
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "worklog"
+    ws.title = L["sheet"]
 
-    title_font = Font(bold=True, size=14, color="FFFFFF")
+    title_font = Font(name=base_font_name, bold=True, size=14, color="FFFFFF")
     title_fill = PatternFill("solid", fgColor="155E5E")
-    hdr_font = Font(bold=True, size=10, color="FFFFFF")
+    hdr_font = Font(name=base_font_name, bold=True, size=10, color="FFFFFF")
     hdr_fill = PatternFill("solid", fgColor="2F5496")
-    cell_font = Font(size=10)
-    sum_font = Font(bold=True, size=11)
+    cell_font = Font(name=base_font_name, size=10)
+    sum_font = Font(name=base_font_name, bold=True, size=11)
     sum_fill = PatternFill("solid", fgColor="FCE4D6")
     thin = Side(style="thin", color="BFBFBF")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     wrap = Alignment(wrap_text=True, vertical="top")
     center = Alignment(horizontal="center", vertical="center")
 
-    headers = ["date", "start", "end", "task", "deliverable",
-               "billable time\n(min, incl. reading)", "billable (h)",
-               "AI time\n(min)", "AI (h)",
-               "in_tok", "out_tok", "cache_tok", "total_tok\n(excl. cache_read)",
-               f"billable hours\n(wall, round up {int(inc*60)}m)"]
+    headers = L["headers"]
     last_col = len(headers)
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
-    agent_tag = "" if agent == "claude" else f" ({agent})"
+    agent_tag = "" if agent == "claude" else (f"（{agent}）" if lg == "zh" else f" ({agent})")
     t = ws.cell(row=1, column=1,
-                value=f"{project} — AI worklog{agent_tag} "
-                      f"(billable time / AI time kept separate, {int(inc*60)}m round-up)")
+                value=L["title"].format(project=project, agent_tag=agent_tag))
     t.font = title_font
     t.fill = title_fill
     t.alignment = center
@@ -186,7 +254,7 @@ def build(project, agent):
             cell.alignment = wrap if c in (4, 5) else center
         r += 1
 
-    ws.cell(row=r, column=4, value="TOTAL").font = sum_font
+    ws.cell(row=r, column=4, value=L["total"]).font = sum_font
     for c in range(1, last_col + 1):
         cell = ws.cell(row=r, column=c)
         cell.fill = sum_fill
@@ -204,22 +272,15 @@ def build(project, agent):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A3"
 
-    ws2 = wb.create_sheet("billing notes")
-    notes = [
-        ("source", f"aibiller CSV: {csv_path(project, agent).name} (written by aibiller.py)"),
-        ("billable time", "wall-clock from user-asked to delivered; includes the user's reading/thinking/comms"),
-        ("AI time", "pure run time measured by aibiller via the OS clock"),
-        ("billable hours", f"billable time rounded UP per {int(inc*60)}-minute unit"),
-        ("tokens", "backfilled at stop from the agent transcript; total = in + out + cache_creation (cache_read excluded — background context, unrelated to work done)"),
-        ("agent", f"this sheet: {agent}; claude and codex keep separate CSVs/sheets, tokens matched per-transcript by time window"),
-        ("update", f"new segments enter the CSV via aibiller; re-run build_log.py --project {project}" + (f" --agent {agent}" if agent != "claude" else "")),
-        ("total cost", "billable hours TOTAL × your agreed hourly rate"),
-    ]
-    for i, (k, v) in enumerate(notes, 1):
+    ws2 = wb.create_sheet(L["notes_sheet"])
+    agent_opt = "" if agent == "claude" else f" --agent {agent}"
+    fmt = {"csv": csv_path(project, agent).name, "agent": agent,
+           "project": project, "agent_opt": agent_opt}
+    for i, (k, v) in enumerate(L["notes"], 1):
         a = ws2.cell(row=i, column=1, value=k)
-        a.font = Font(bold=True, size=10)
-        b = ws2.cell(row=i, column=2, value=v)
-        b.font = Font(size=10)
+        a.font = Font(name=base_font_name, bold=True, size=10)
+        b = ws2.cell(row=i, column=2, value=v.format(**fmt))
+        b.font = Font(name=base_font_name, size=10)
         b.alignment = Alignment(wrap_text=True, vertical="top")
     ws2.column_dimensions["A"].width = 16
     ws2.column_dimensions["B"].width = 84
@@ -244,6 +305,8 @@ def main():
         project = raw[raw.index("--project") + 1]
     if "--agent" in raw:
         agent = raw[raw.index("--agent") + 1]
+    if "--lang" in raw:  # one-off override of AIBILLER_LANG
+        os.environ["AIBILLER_LANG"] = raw[raw.index("--lang") + 1]
     if not project:
         print(__doc__)
         sys.exit(1)
