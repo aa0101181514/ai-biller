@@ -1,0 +1,4 @@
+seq,date,wall_start_iso,wall_end_iso,wall_min,start_iso,stop_iso,duration_sec,duration_min,in_tok,out_tok,cache_tok,cache_read_tok,total_tok,task,deliverable
+1,2026-01-15,2026-01-15T09:30:00+00:00,2026-01-15T09:52:00+00:00,22.0,2026-01-15T09:34:00+00:00,2026-01-15T09:52:00+00:00,1080.0,18.0,4200,9100,38000,1450000,51300,Investigate failing checkout flow,Found race condition in cart sync; root cause documented
+2,2026-01-15,2026-01-15T10:05:00+00:00,2026-01-15T10:41:00+00:00,36.0,2026-01-15T10:07:00+00:00,2026-01-15T10:41:00+00:00,2040.0,34.0,6800,21500,52000,2100000,80300,Implement fix + tests,Patch + 4 unit tests, all green
+3,2026-01-15,2026-01-15T13:00:00+00:00,2026-01-15T13:12:00+00:00,12.0,2026-01-15T13:01:00+00:00,2026-01-15T13:12:00+00:00,660.0,11.0,2100,5400,15000,820000,22500,Write PR description + changelog,PR opened with summary and migration note

@@ -1,0 +1,16 @@
+# aiclock generated data — never commit real work logs (may contain client/work details)
+*.csv
+*.xlsx
+.aiclock_open_*.json
+.aiclock/
+*.bak*
+
+# but DO ship the fake-data examples
+!examples/*.csv
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
