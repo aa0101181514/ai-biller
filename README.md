@@ -33,14 +33,15 @@ python3 aibiller.py show  demo                     # 看結果
 
 ---
 
-## 為什麼要分兩個時間欄？
+## 計費時間怎麼算？
 
 | 欄位 | 是什麼 | 用途 |
 |------|--------|------|
-| **法顧投入時間**（`wall_min`） | 你發問 → 交付，含你的閱讀／思考／溝通 | 對客戶計費的基礎 |
-| **AI 處理時間**（`duration_min`） | 該段純 OS 時鐘執行時間 | 透明度／成本分析 |
+| **AI 處理時間**（`duration_min`） | 從 `start` 到 `stop` 的純 OS 時鐘執行時間 | **計費基礎** |
 
-可計費工時 = 法顧投入時間，以計費單位**無條件進位**（預設 15 分）。用 `AIBILLER_BILLING_INCREMENT` 調整。
+可計費工時 = AI 處理時間，以計費單位**無條件進位**（預設 15 分）。用 `AIBILLER_BILLING_INCREMENT` 調整。
+
+> 註：`aibiller` 每段只量「一個」OS 時鐘區間（start→stop），**無法**把你的閱讀／思考時間和 AI 跑的時間分開，因此不另設「法顧投入」欄——AI 處理時間就是唯一、誠實的計費基礎。
 
 ## 為什麼 `total_tok` 不含 `cache_read`？
 
@@ -284,15 +285,18 @@ after clone. Only `build_log.py` (the Excel sheet) needs `pip install openpyxl`.
 
 ---
 
-## Why two time columns?
+## How is billable time measured?
 
 | column | what it is | use |
 |--------|-----------|-----|
-| **billable time** (`wall_min`) | user-asked → delivered, including the user's reading/thinking/comms | what you bill the client |
-| **AI time** (`duration_min`) | pure OS-clock run time of the segment | transparency / cost analysis |
+| **AI time** (`duration_min`) | pure OS-clock run time from `start` to `stop` | **billing basis** |
 
-Billable hours = billable time rounded **up** to a billing increment (default
+Billable hours = AI time rounded **up** to a billing increment (default
 15 min). Set your own with `AIBILLER_BILLING_INCREMENT`.
+
+> Note: `aibiller` measures a single OS-clock interval per segment (start→stop);
+> it cannot separate your reading/thinking from AI run time, so there is no
+> separate "consultant input" column — AI time is the single, honest billing basis.
 
 ## Why is `cache_read` excluded from `total_tok`?
 
@@ -378,10 +382,12 @@ python3 aibiller.py stop  myproject "done" --agent codex
 python3 build_log.py --project myproject --agent codex   # separate .xlsx
 ```
 
-### Billable wall-clock start
+### Recording when the user actually asked (optional)
 
-If the user asked at 09:30 but the agent only stamped `start` at 09:42, record
-the real billable start:
+`--wall` lets you record when the user first asked (e.g. 09:30) even if the
+agent only stamped `start` at 09:42. It is kept in the CSV (`wall_min`) for your
+own records only — **billing is on AI processing time**, so `--wall` does not
+change the billable hours.
 
 ```bash
 python3 aibiller.py start myproject "task" --wall 09:30

@@ -3,11 +3,14 @@
 build_log.py — turn an aibiller CSV into a billing spreadsheet (.xlsx)
 
 Reads aibiller_<project>[_<agent>].csv (written by aibiller.py) and emits an
-Excel workbook with two time columns kept separate:
-  - billable time  = wall_min (user-asked → delivered; includes reading/comms)
-  - AI time        = duration_min (OS-clock pure run time)
-  - billable hours = wall time rounded UP to a billing increment (default 15m)
-  - tokens         = in/out/cache + total (total excludes cache_read)
+Excel workbook billed on AI processing time:
+  - AI time        = duration_min (OS-clock pure run time, start → stop)
+  - billable hours = AI time rounded UP to a billing increment (default 15m)
+  - tokens         = in/out + total (total excludes cache_read)
+
+  Note: aibiller measures one OS-clock interval per segment; it cannot separate
+  the user's reading/thinking from AI run time, so there is no separate
+  "consultant input" column — AI time is the single, honest billing basis.
 
 USAGE
     build_log.py --project NAME [--agent claude|codex]
@@ -80,20 +83,18 @@ def _strings(inc):
         "en": {
             "sheet": "worklog",
             "headers": ["date", "start", "end", "task", "deliverable",
-                        "billable time\n(min, incl. reading)", "billable (h)",
-                        "AI time\n(min)", "AI (h)",
-                        "in_tok", "out_tok", "cache_tok",
+                        "AI time\n(min)",
+                        "in_tok", "out_tok",
                         "total_tok\n(excl. cache_read)",
-                        f"billable hours\n(wall, round up {m}m)"],
+                        f"billable hours\n(AI time, round up {m}m)"],
             "title": "{project} — AI worklog{agent_tag} "
-                     f"(billable time / AI time kept separate, {m}m round-up)",
+                     f"(AI processing time, billed by AI time, {m}m round-up)",
             "total": "TOTAL",
             "notes_sheet": "billing notes",
             "notes": [
                 ("source", "aibiller CSV: {csv} (written by aibiller.py)"),
-                ("billable time", "wall-clock from user-asked to delivered; includes the user's reading/thinking/comms"),
-                ("AI time", "pure run time measured by aibiller via the OS clock"),
-                ("billable hours", f"billable time rounded UP per {m}-minute unit"),
+                ("AI time", "pure run time measured by aibiller via the OS clock (start → stop)"),
+                ("billable hours", f"AI time rounded UP per {m}-minute unit"),
                 ("tokens", "backfilled at stop from the agent transcript; total = in + out + cache_creation (cache_read excluded — background context, unrelated to work done)"),
                 ("agent", "this sheet: {agent}; claude and codex keep separate CSVs/sheets, tokens matched per-transcript by time window"),
                 ("update", "new segments enter the CSV via aibiller; re-run build_log.py --project {project}{agent_opt}"),
@@ -103,20 +104,18 @@ def _strings(inc):
         "zh": {
             "sheet": "工作計時log",
             "headers": ["日期", "開始", "結束", "工作項目", "產出／說明",
-                        "法顧投入總時間\n(分，含閱讀溝通)", "法顧投入(時)",
-                        "AI處理時間\n(分)", "AI處理(時)",
-                        "in_tok", "out_tok", "cache_tok",
+                        "AI處理時間\n(分)",
+                        "in_tok", "out_tok",
                         "total_tok\n(不含cache_read)",
-                        f"可計費工時\n(以法顧投入×{m}分進位)"],
+                        f"可計費工時\n(以AI處理時間×{m}分進位)"],
             "title": "{project} — AI 工作計時 log{agent_tag}"
-                     f"（法顧投入總時間／AI處理時間 兩欄分開，{m}分進位）",
+                     f"（AI處理時間，以AI處理時間計費，{m}分進位）",
             "total": "合計",
             "notes_sheet": "計費口徑說明",
             "notes": [
                 ("事實來源", "aibiller CSV：{csv}（由 aibiller.py start/stop 寫入）"),
-                ("法顧投入總時間", "用戶發問→交付的牆鐘區間，含閱讀／思考／溝通＝對外計費基礎"),
-                ("AI 處理時間", "aibiller 用 OS 時鐘量的純跑時間，去除閱讀"),
-                ("可計費進位", f"以法顧投入總時間，每 {m} 分鐘無條件進位"),
+                ("AI 處理時間", "aibiller 用 OS 時鐘量的純跑時間（start → stop）＝計費基礎"),
+                ("可計費進位", f"以 AI 處理時間，每 {m} 分鐘無條件進位"),
                 ("token", "stop 時掃對應 agent transcript 回填；total = in+out+cache_creation（不含 cache_read，後者為百萬級背景上下文與工作量無關）"),
                 ("agent", "本表 agent = {agent}；claude 與 codex 各自獨立 CSV/Excel，token 按時間區間配對各自 transcript 不混"),
                 ("更新方式", "新工作段以 aibiller 打點即自動進 CSV；重跑 build_log.py --project {project}{agent_opt} 更新本 Excel"),
@@ -214,28 +213,27 @@ def build(project, agent):
     ws.row_dimensions[2].height = 32
 
     r = 3
-    tot_wall = tot_ai = tot_bill = 0.0
-    tot_in = tot_out = tot_cache = tot_total = 0
+    tot_ai = tot_bill = 0.0
+    tot_in = tot_out = tot_total = 0
     for row in rows:
         ws_iso = row.get("wall_start_iso", "")
         we_iso = row.get("wall_end_iso", "")
         start_hm = ws_iso[11:16] if len(ws_iso) >= 16 else ""
         end_hm = we_iso[11:16] if len(we_iso) >= 16 else ""
-        wall_min = fnum(row.get("wall_min"))
         ai_min = fnum(row.get("duration_min"))
         in_tok = fint(row.get("in_tok"))
         out_tok = fint(row.get("out_tok"))
-        cache_tok = fint(row.get("cache_tok"))
         total_tok = fint(row.get("total_tok"))
 
-        wall_h = wall_min / 60.0
-        bill = round_up(wall_h, inc)
-        tot_wall += wall_min
+        # Bill on AI processing time (OS-clock start→stop). aibiller cannot
+        # separate the user's reading/thinking from AI run time, so there is no
+        # honest "consultant input" column — AI time is the single billing basis.
+        ai_h = ai_min / 60.0
+        bill = round_up(ai_h, inc)
         tot_ai += ai_min
         tot_bill += bill
         tot_in += in_tok
         tot_out += out_tok
-        tot_cache += cache_tok
         tot_total += total_tok
 
         # task/deliverable: accept both the current English headers and the
@@ -244,9 +242,8 @@ def build(project, agent):
         deliverable = row.get("deliverable") or row.get("產出說明") or ""
         vals = [row.get("date", ""), start_hm, end_hm,
                 task, deliverable,
-                round(wall_min, 1), round(wall_h, 2),
-                round(ai_min, 1), round(ai_min / 60.0, 2),
-                in_tok, out_tok, cache_tok, total_tok, bill]
+                round(ai_min, 1),
+                in_tok, out_tok, total_tok, bill]
         for c, v in enumerate(vals, 1):
             cell = ws.cell(row=r, column=c, value=v)
             cell.font = cell_font
@@ -259,15 +256,14 @@ def build(project, agent):
         cell = ws.cell(row=r, column=c)
         cell.fill = sum_fill
         cell.border = border
-    for c, v in {6: round(tot_wall, 1), 7: round(tot_wall / 60.0, 2),
-                 8: round(tot_ai, 1), 9: round(tot_ai / 60.0, 2),
-                 10: tot_in, 11: tot_out, 12: tot_cache, 13: tot_total,
-                 14: round(tot_bill, 2)}.items():
+    for c, v in {6: round(tot_ai, 1),
+                 7: tot_in, 8: tot_out, 9: tot_total,
+                 10: round(tot_bill, 2)}.items():
         cell = ws.cell(row=r, column=c, value=v)
         cell.font = sum_font
         cell.alignment = center
 
-    widths = [12, 7, 7, 28, 46, 14, 11, 10, 8, 9, 9, 9, 14, 16]
+    widths = [12, 7, 7, 28, 46, 12, 10, 10, 14, 18]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A3"
@@ -290,10 +286,9 @@ def build(project, agent):
     wb.save(out)
     print(f"wrote: {out}")
     print(f"segments: {len(rows)} (agent={agent})")
-    print(f"billable time: {tot_wall:.1f} min = {tot_wall/60:.2f} h")
     print(f"AI time: {tot_ai:.1f} min = {tot_ai/60:.2f} h")
     print(f"tokens: in={tot_in} out={tot_out} total(excl. read)={tot_total}")
-    print(f"billable hours: {tot_bill:.2f} h ({int(inc*60)}m round-up)")
+    print(f"billable hours: {tot_bill:.2f} h (AI time, {int(inc*60)}m round-up)")
     return out
 
 
