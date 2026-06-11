@@ -56,9 +56,11 @@ CSV COLUMNS
     seq, date, wall_start_iso, wall_end_iso, wall_min,
     start_iso, stop_iso, duration_sec, duration_min,
     in_tok, out_tok, cache_tok, cache_read_tok, total_tok, task, deliverable
-    (total_tok = in + out + cache_creation; cache_read is kept separately but
-     NOT counted in total — it is the multi-million-token background context
-     reloaded each turn and unrelated to how much work a segment did.)
+    (total_tok = in + out. cache_tok [cache_creation] and cache_read_tok are
+     recorded in their own columns but NOT counted in total — cache_read is the
+     multi-million-token background context reloaded each turn, and cache_creation
+     is context-write overhead; neither maps to how much work a segment did, so
+     total stays in+out for an honest work-volume signal.)
 
 NOTES / LIMITATIONS
 - Token backfill is best-effort: it reverse-engineers the agents' on-disk
@@ -200,7 +202,8 @@ def _collect_tokens(start_epoch, stop_epoch, agent="claude"):
     """Dispatch to the per-agent transcript scanner. Sum token usage whose
     timestamp falls in [start_epoch, stop_epoch]. Returns
     (in, out, cache_creation, cache_read) or None if nothing found.
-    Unified rule: total = in + out + cache_creation (cache_read kept separate)."""
+    All four are recorded; billable total_tok = in + out (cache_creation and
+    cache_read are kept in their own columns but excluded from total)."""
     if agent == "codex":
         return _collect_tokens_codex(start_epoch, stop_epoch)
     return _collect_tokens_claude(start_epoch, stop_epoch)
@@ -397,7 +400,7 @@ def cmd_stop(project, note, agent="claude", make_excel=True):
     else:
         in_tok, out_tok, cc_tok, cr_tok = tok
         tok_note = None
-    total_tok = in_tok + out_tok + cc_tok  # excludes cache_read
+    total_tok = in_tok + out_tok  # excludes cache_creation and cache_read
 
     wall_start_iso = open_seg.get("wall_start_iso", open_seg["start_iso"])
     wall_end_iso = t_stop.isoformat(timespec="seconds")
@@ -432,8 +435,8 @@ def cmd_stop(project, note, agent="claude", make_excel=True):
     p.unlink()
     msg = (f"✅ STOP  [{project}/{agent}] {t_stop.strftime('%H:%M:%S')} — "
            f"wall {wall_min:.1f}m / AI {dur_sec:.1f}s ({dur_min:.2f}m) — {open_seg['item']}\n"
-           f"   tokens: in={in_tok} out={out_tok} cache_create={cc_tok} "
-           f"cache_read={cr_tok} → total={total_tok} (excl. cache_read)")
+           f"   tokens: in={in_tok} out={out_tok} → total={total_tok} (in+out) "
+           f"[cache_create={cc_tok} cache_read={cr_tok} excluded]")
     if tok_note:
         msg += f"\n   {tok_note}"
     print(msg)

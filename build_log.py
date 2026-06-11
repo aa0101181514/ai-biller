@@ -95,7 +95,7 @@ def _strings(inc):
                 ("source", "aibiller CSV: {csv} (written by aibiller.py)"),
                 ("AI time", "pure run time measured by aibiller via the OS clock (start → stop)"),
                 ("billable hours", f"AI time rounded UP per {m}-minute unit"),
-                ("tokens", "backfilled at stop from the agent transcript; total = in + out + cache_creation (cache_read excluded — background context, unrelated to work done)"),
+                ("tokens", "backfilled at stop from the agent transcript; total = in + out (cache_creation and cache_read are recorded in the CSV but excluded from total — overhead/background context, unrelated to work done)"),
                 ("agent", "this sheet: {agent}; claude and codex keep separate CSVs/sheets, tokens matched per-transcript by time window"),
                 ("update", "new segments enter the CSV via aibiller; re-run build_log.py --project {project}{agent_opt}"),
                 ("total cost", "billable hours TOTAL × your agreed hourly rate"),
@@ -116,7 +116,7 @@ def _strings(inc):
                 ("事實來源", "aibiller CSV：{csv}（由 aibiller.py start/stop 寫入）"),
                 ("AI 處理時間", "aibiller 用 OS 時鐘量的純跑時間（start → stop）＝計費基礎"),
                 ("可計費進位", f"以 AI 處理時間，每 {m} 分鐘無條件進位"),
-                ("token", "stop 時掃對應 agent transcript 回填；total = in+out+cache_creation（不含 cache_read，後者為百萬級背景上下文與工作量無關）"),
+                ("token", "stop 時掃對應 agent transcript 回填；total = in+out（cache_creation 與 cache_read 仍記在 CSV 但不計入 total——前者為寫快取開銷、後者為百萬級背景上下文，皆與工作量無關）"),
                 ("agent", "本表 agent = {agent}；claude 與 codex 各自獨立 CSV/Excel，token 按時間區間配對各自 transcript 不混"),
                 ("更新方式", "新工作段以 aibiller 打點即自動進 CSV；重跑 build_log.py --project {project}{agent_opt} 更新本 Excel"),
                 ("最終費用", "可計費工時合計 × 約定時薪"),
@@ -223,7 +223,9 @@ def build(project, agent):
         ai_min = fnum(row.get("duration_min"))
         in_tok = fint(row.get("in_tok"))
         out_tok = fint(row.get("out_tok"))
-        total_tok = fint(row.get("total_tok"))
+        # total = in + out (recompute here so older CSVs whose stored total_tok
+        # still included cache_creation render consistently with in+out).
+        total_tok = in_tok + out_tok
 
         # Bill on AI processing time (OS-clock start→stop). aibiller cannot
         # separate the user's reading/thinking from AI run time, so there is no

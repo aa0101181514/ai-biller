@@ -43,9 +43,9 @@ python3 aibiller.py show  demo                     # 看結果
 
 > 註：`aibiller` 每段只量「一個」OS 時鐘區間（start→stop），**無法**把你的閱讀／思考時間和 AI 跑的時間分開，因此不另設「法顧投入」欄——AI 處理時間就是唯一、誠實的計費基礎。
 
-## 為什麼 `total_tok` 不含 `cache_read`？
+## `total_tok` 是怎麼算的？
 
-LLM 代理每個回合都會重新載入龐大的快取上下文——往往是數百萬 token，跟「這段做了多少事」無關。`aibiller` 把 `cache_read` 記在獨立欄位以保持透明，但**不計入 `total_tok`**（`total = in + out + cache_creation`），讓 token 總數反映真實工作量，而非背景重載。
+**`total_tok = in_tok + out_tok`。** 另兩種 token——`cache_creation`（寫入快取的開銷）與 `cache_read`（每回合重載的數百萬 token 背景上下文）——都記在 CSV 的獨立欄位以保持透明，但**都不計入 `total_tok`**，因為兩者都跟「這段做了多少事」無關。這樣 Excel 上的 `total_tok` 就等於 `in_tok + out_tok`，一目了然對得上。
 
 ---
 
@@ -298,13 +298,14 @@ Billable hours = AI time rounded **up** to a billing increment (default
 > it cannot separate your reading/thinking from AI run time, so there is no
 > separate "consultant input" column — AI time is the single, honest billing basis.
 
-## Why is `cache_read` excluded from `total_tok`?
+## How is `total_tok` computed?
 
-LLM agents reload a large cached context every turn — often millions of tokens
-that have nothing to do with how much work a segment did. `aibiller` records
-`cache_read` in its own column for transparency but **excludes it from
-`total_tok`** (`total = in + out + cache_creation`), so the token total reflects
-real work, not background reloads.
+**`total_tok = in_tok + out_tok`.** The other two token kinds — `cache_creation`
+(context-write overhead) and `cache_read` (the millions of background-context
+tokens reloaded every turn) — are recorded in their own CSV columns for
+transparency but **both excluded from `total_tok`**, since neither reflects how
+much work a segment did. This keeps the Excel `total_tok` equal to
+`in_tok + out_tok`, so it visibly adds up.
 
 ---
 
